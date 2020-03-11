@@ -7,3 +7,4 @@ from .rules import (
     CompositeRule,
     AbstractRule
 )
+from .exceptions import InvalidRequest

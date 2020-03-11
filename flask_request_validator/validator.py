@@ -31,12 +31,21 @@ class Param(object):
         :param str param_type: type of request param (see: PARAM_TYPES)
         :raises: UndefinedParamType, NotAllowedType
         """
-
         if param_type not in PARAM_TYPES:
             raise UndefinedParamType('Undefined param type "%s"' % param_type)
 
-        if value_type and value_type not in ALLOWED_TYPES:
-            raise NotAllowedType('Value type "%s" is not allowed' % value_type)
+        # if value_type and value_type not in ALLOWED_TYPES:
+        #     raise NotAllowedType('Value type "%s" is not allowed' % value_type)
+
+        if value_type and type(value_type) == tuple:
+            # print('if value_type', value_type)
+            for v in value_type:
+                if v not in ALLOWED_TYPES:
+                    raise NotAllowedType('Value type "%s" is not allowed' % v)
+        else:
+            # print('else value_type', value_type)
+            if value_type and value_type not in ALLOWED_TYPES:
+                raise NotAllowedType('Value type "%s" is not allowed' % value_type)
 
         self.value_type = value_type
         self.default = default
@@ -50,6 +59,9 @@ class Param(object):
         :param mixed value:
         :return: mixed
         """
+        # print('value_to_type value', value)
+        # print('value_to_type self.param_type', self.param_type)
+        # print('value_to_type self.value_type', self.value_type)
         if self.param_type != JSON:
             if self.value_type == bool:
                 low_val = value.lower()
@@ -66,9 +78,13 @@ class Param(object):
                     for item in value.split(',')
                 }
 
-        if self.value_type:
-            value = self.value_type(value)
+        if self.value_type and type(self.value_type) == tuple: # NOTE: type 여러개 가능
+            return value
 
+        # if self.value_type:
+        if self.value_type and self.value_type != list: # NOTE: dict('11') -> ['1', '1'] 방지
+            value = self.value_type(value)
+        
         return value
 
 
@@ -93,11 +109,11 @@ def validate_params(*params):
             errors, endpoint_args = __get_errors(params)
             if errors:
                 raise InvalidRequest(errors)
-
             if args:
                 endpoint_args = (args[0], ) + tuple(endpoint_args)
 
-            return func(*endpoint_args)
+            # return func(*endpoint_args) # TODO: 왜 이렇게 했는지?
+            return func(*args, **kwargs)
 
         return wrapper
 
@@ -121,6 +137,7 @@ def __get_errors(params):
         param_name = param.name
         param_type = param.param_type
         value = __get_request_value(param_type, param_name)
+        # print('__get_errors value', value)
 
         if value is None:
             if param.required:
@@ -139,23 +156,46 @@ def __get_errors(params):
                 continue
         else:
             if param.value_type:
+                # print('value', value)
                 try:
                     value = param.value_to_type(value)
-                except (ValueError, TypeError):
+                except (ValueError, TypeError) as e:
                     errors[param_name] = [
-                        'Error of conversion value "%s" to type %s' %
+                        'Error of conversion(1) value "%s" to type %s' %
                         (value, param.value_type)
                     ]
 
                     continue
+                
+                # print('param.value_type', param.value_type)
+                # print('value', value)
+                # print('type(value)', type(value))
+                
+                #NOTE: 여러 타입 가능하게 변경
+                if type(param.value_type) == tuple:
+                    if not type(value) in param.value_type: # NOTE: 여러 타입 가능
+                        errors[param_name] = [
+                            'Error of conversion(2) value "%s" to type %s' %
+                            (value, param.value_type)
+                        ]
 
-                if param.value_type != type(value):
-                    errors[param_name] = [
-                        'Error of conversion value "%s" to type %s' %
-                        (value, param.value_type)
-                    ]
+                        continue
+                else:
+                    if param.value_type != type(value):
+                        errors[param_name] = [
+                            'Error of conversion(2) value "%s" to type %s' %
+                            (value, param.value_type)
+                        ]
 
-                    continue
+                        continue
+
+                # if param.value_type != type(value):
+                #     errors[param_name] = [
+                #         'Error of conversion(2) value "%s" to type %s' %
+                #         (value, param.value_type)
+                #     ]
+
+                #     continue
 
             rules_errors = []
             for rule in param.rules:
@@ -184,7 +224,10 @@ def __get_request_value(value_type, name):
     elif value_type == PATH:
         return request.view_args.get(name)
     elif value_type == JSON:
+        # print('request.get_json()', request.get_json())
         json_ = request.get_json()
-        return json_.get(name) if json_ else json_
+        # print('?', json_.get(name) if name in json_ else None)
+        return json_.get(name) if name in json_ else None # NOTE: 키가 안 넘어오면 None이 옳음
+        # return json_.get(name) if json_ else json_
     else:
         raise UndefinedParamType('Undefined param type %s' % name)
